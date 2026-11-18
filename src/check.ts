@@ -143,8 +143,11 @@ function span(ep: Episode): string {
   return `${head} to ${ep.end.stamp} (row ${ep.end.row}), ${formatDuration(ep.end.ms - ep.start.ms)}`;
 }
 
+/** Time of each finding (ms) for sorting; not part of the report. */
+const findingTime = new WeakMap<Finding, number>();
+
 function episodeFinding(kind: FindingKind, ep: Episode, message: string, rows?: number[]): Finding {
-  return {
+  const f: Finding = {
     kind,
     meter: ep.meter,
     condition: ep.condition,
@@ -155,6 +158,13 @@ function episodeFinding(kind: FindingKind, ep: Episode, message: string, rows?: 
     rows: rows ?? (ep.end ? [ep.start.row, ep.end.row] : [ep.start.row]),
     message,
   };
+  findingTime.set(f, ep.start.ms);
+  return f;
+}
+
+function eventFinding(f: Finding, e: MeterEvent): Finding {
+  findingTime.set(f, e.ms);
+  return f;
 }
 
 /** Audits an event log: pairs start / end events into episodes, clusters power failures, and lists findings. */
@@ -212,7 +222,9 @@ export function check(log: EventLog, options: CheckOptions = {}): Report {
         if (m.event === 'clock-adjusted') clockAdjusted++;
         else {
           logCleared++;
-          findings.push({ kind: 'log-cleared', meter, start: e.stamp, rows: [e.row], message: `${meter} event log cleared at ${e.stamp} (row ${e.row})` });
+          findings.push(
+            eventFinding({ kind: 'log-cleared', meter, start: e.stamp, rows: [e.row], message: `${meter} event log cleared at ${e.stamp} (row ${e.row})` }, e),
+          );
         }
         continue;
       }
@@ -227,15 +239,8 @@ export function check(log: EventLog, options: CheckOptions = {}): Report {
         open.delete(key);
       } else {
         const ph = e.phase ? ` [${e.phase}]` : '';
-        findings.push({
-          kind: 'unmatched-end',
-          meter,
-          condition: m.condition,
-          phase: e.phase,
-          start: e.stamp,
-          rows: [e.row],
-          message: `${meter} "${e.event}"${ph} at ${e.stamp} (row ${e.row}) ends a ${LABEL[m.condition]} that never started in the log`,
-        });
+        const message = `${meter} "${e.event}"${ph} at ${e.stamp} (row ${e.row}) ends a ${LABEL[m.condition]} that never started in the log`;
+        findings.push(eventFinding({ kind: 'unmatched-end', meter, condition: m.condition, phase: e.phase, start: e.stamp, rows: [e.row], message }, e));
       }
     }
     episodes.push(...open.values());
@@ -312,11 +317,11 @@ export function check(log: EventLog, options: CheckOptions = {}): Report {
     }
   }
 
-  // Order: kind, then meter (first appearance), then time.
+  // Order: kind, then meter (first appearance), then time (stable: equal times keep the order found).
   const meterOrder = new Map([...byMeter.keys()].map((m, i) => [m, i]));
   const kindOrder = new Map(FINDING_KINDS.map((k, i) => [k, i]));
   findings.sort(
-    (a, b) => kindOrder.get(a.kind)! - kindOrder.get(b.kind)! || meterOrder.get(a.meter)! - meterOrder.get(b.meter)! || a.rows[0] - b.rows[0],
+    (a, b) => kindOrder.get(a.kind)! - kindOrder.get(b.kind)! || meterOrder.get(a.meter)! - meterOrder.get(b.meter)! || findingTime.get(a)! - findingTime.get(b)!,
   );
   const counts: Partial<Record<FindingKind, number>> = {};
   for (const f of findings) {

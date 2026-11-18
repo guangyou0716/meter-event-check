@@ -213,6 +213,14 @@ describe('report', () => {
     expect(r.summary).toMatchObject({ meters: 3, events: 7, from: '2026-11-10 08:00', to: '2026-11-10 09:00', duplicatesDropped: 0 });
     expect(r.settings).toEqual({ nearMs: 300_000, outageWindowMs: 120_000, areaMin: 3, maxOutageMs: null, isolated: false });
   });
+  it('findings of one meter are ordered by time, not file row', () => {
+    const r = run(['M1 09:00 cover-open', 'M1 09:10 cover-close', 'M1 08:00 cover-open', 'M1 08:05 cover-close', 'M1 07:00 log-cleared']);
+    expect(r.findings.map((f) => [f.kind, f.rows[0]])).toEqual([
+      ['tamper', 4],
+      ['tamper', 2],
+      ['log-cleared', 6],
+    ]);
+  });
   it('meters without tamper or findings are not listed', () => {
     const r = run(['A 08:00 power-fail', 'A 08:10 power-restore']);
     expect(r.meters).toEqual([]);
