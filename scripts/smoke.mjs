@@ -72,3 +72,19 @@ const t3 = Date.now();
 const r3 = run([file]);
 if (r3.status !== 1 || !r3.stdout.includes('Findings: 40 (tamper 20, tamper-near-outage 20)')) fail(`text: ${r3.status} ${r3.stderr}`);
 console.log(`smoke: ok text report in ${Date.now() - t3} ms`);
+
+const t4 = Date.now();
+const r4 = run([file, '--csv', '--isolated', '--max-outage', '30m']);
+const csvLines = r4.stdout.trimEnd().split('\n');
+const want4 = 1 + 40 + METERS * PAIRS + METERS;
+if (r4.status !== 1 || csvLines.length !== want4 || !csvLines[0].startsWith('kind,meter,')) {
+  fail(`csv: status ${r4.status} ${csvLines.length} lines (want ${want4}) ${r4.stderr}`);
+}
+console.log(`smoke: ok --csv in ${Date.now() - t4} ms: ${csvLines.length - 1} finding rows`);
+
+const t5 = Date.now();
+const r5 = run([file, '--md']);
+if (r5.status !== 1 || !r5.stdout.startsWith('# Meter event check\n') || !r5.stdout.includes('## Findings: 40')) {
+  fail(`md: ${r5.status} ${r5.stderr}`);
+}
+console.log(`smoke: ok --md in ${Date.now() - t5} ms`);

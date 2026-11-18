@@ -161,6 +161,30 @@ meter-event-check examples/vendor-events.csv --map examples/vendor-map.csv \
 events, counts per finding kind and every finding (with meter, condition, phase, start, end, duration in ms and
 file rows).
 
+## Output formats
+
+Pick one of `--json`, `--md` and `--csv` (more than one is an input error, exit 2); exit codes are the same for
+every format.
+
+- `--md`: Markdown report for tickets and wikis: summary table, settings, conditions, area outages, unknown events,
+  a per-meter table (meters with tamper or findings, most tamper first) and findings per kind. Tables and lists are
+  capped by `--limit` like the text report.
+- `--csv`: one row per finding, every finding (`--limit` is ignored), in the text report's kind order; header only
+  when there are none. Columns `kind,meter,condition,phase,start,end,duration,duration_ms,rows,detail`: `start`,
+  `end` and `duration` are the finding's episode as written (for `tamper-near-outage` the cover episode; the outage
+  is in `detail`), empty when still active or not an episode; `rows` are file rows, space separated. Cells follow
+  RFC 4180 quoting, and cells starting with `=`, `+`, `-`, `@`, tab or CR get a leading `'` so spreadsheets do not
+  run them as formulas.
+
+```text
+$ meter-event-check examples/events.csv --csv
+kind,meter,condition,phase,start,end,duration,duration_ms,rows,detail
+tamper,MTR-0002,cover,,2026-11-03 14:20:00,2026-11-03 14:35:00,15m,900000,7 8,"MTR-0002 cover open from 2026-11-03 14:20:00 (row 7) to 2026-11-03 14:35:00 (row 8), 15m"
+tamper,MTR-0003,magnetic,,2026-11-04 02:00:00,2026-11-04 03:30:00,1h30m,5400000,15 17,"MTR-0003 magnetic interference from 2026-11-04 02:00:00 (row 15) to 2026-11-04 03:30:00 (row 17), 1h30m"
+tamper,MTR-0004,terminal-cover,,2026-11-05 21:57:00,2026-11-05 22:40:00,43m,2580000,21 23,"MTR-0004 terminal cover open from 2026-11-05 21:57:00 (row 21) to 2026-11-05 22:40:00 (row 23), 43m"
+...
+```
+
 ## Options
 
 ```text
@@ -170,9 +194,11 @@ file rows).
 --area-min <n>           meters a group needs to be an area outage (default 3, at least 2)
 --max-outage <T>         flag power failures longer than T (long-outage)
 --isolated               flag single-meter power failures; needs at least --area-min meters in the log
---limit <n>              rows listed per section in the text report (default 50)
+--limit <n>              rows listed per section in the text and --md reports (default 50)
 --meter-column / --time-column / --event-column / --phase-column <name>
 --json                   JSON report
+--md                     Markdown report (lists capped by --limit)
+--csv                    CSV, one row per finding (all findings)
 --list-events            built-in event names and aliases
 ```
 
