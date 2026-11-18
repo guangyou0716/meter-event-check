@@ -1,0 +1,8 @@
+code,event
+1,power-fail
+2,power-restore
+40,cover-open
+41,cover-close
+201,magnetic-start
+202,magnetic-end
+255,log-cleared
