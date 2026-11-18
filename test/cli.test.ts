@@ -117,6 +117,40 @@ describe('cli', () => {
     expect(r.out).toContain('Outages: 1 power failure, 0 in 0 area outages (>= 3 meters within 2m), 1 single-meter');
     expect(r.out.trimEnd().endsWith('No findings.')).toBe(true);
   });
+  it('--md report honours --limit', () => {
+    const r = run([ex('events.csv'), '--md', '--limit', '1']);
+    expect(r.code).toBe(1);
+    expect(r.err).toBe('');
+    expect(r.out.startsWith('# Meter event check\n')).toBe(true);
+    expect(r.out).toContain('## Findings: 10');
+    expect(r.out).toContain('### tamper: 4\n\n- MTR-0002 cover open');
+    expect(r.out).toContain('- ... 3 more (use --json or --csv for all, or a higher --limit)');
+  });
+  it('--csv lists every finding and ignores --limit', () => {
+    const r = run([ex('events.csv'), '--csv', '--limit', '1', '--max-outage', '2h', '--isolated']);
+    expect(r.code).toBe(1);
+    const lines = r.out.trimEnd().split('\n');
+    expect(lines[0]).toBe('kind,meter,condition,phase,start,end,duration,duration_ms,rows,detail');
+    expect(lines).toHaveLength(14);
+    expect(lines.filter((l) => l.startsWith('tamper,'))).toHaveLength(4);
+    expect(lines[13]).toMatch(/^isolated-outage,MTR-0006,power,,2026-11-07 18:00:00,,,,29,/);
+  });
+  it('--csv header only and exit 0 for a clean log', () => {
+    const p = tmp('e.csv', 'meter,timestamp,event\nM1,2026-11-10 08:00,power-fail\nM1,2026-11-10 08:30,power-restore\n');
+    const r = run([p, '--csv']);
+    expect(r.code).toBe(0);
+    expect(r.out).toBe('kind,meter,condition,phase,start,end,duration,duration_ms,rows,detail\n');
+  });
+  it.each([
+    ['--json', '--md'],
+    ['--json', '--csv'],
+    ['--md', '--csv'],
+  ])('%s with %s is an input error (exit 2)', (a, b) => {
+    const r = run([ex('events.csv'), a, b]);
+    expect(r.code).toBe(2);
+    expect(r.out).toBe('');
+    expect(r.err).toBe('meter-event-check: pick one of --json, --md, --csv.\n');
+  });
   it('--help and --list-events', () => {
     const h = run(['--help']);
     expect(h.code).toBe(0);

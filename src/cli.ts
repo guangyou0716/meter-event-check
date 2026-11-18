@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { check, conditionLabel } from './check.js';
 import { InputError } from './errors.js';
+import { csvReport, mdReport } from './formats.js';
 import { parseDuration, parseEvents, parseMap } from './input.js';
 import { jsonReport, textReport } from './report.js';
 import { VOCABULARY } from './vocabulary.js';
@@ -49,12 +50,17 @@ Options:
   --area-min <n>           meters a group needs to be an area outage (default 3, at least 2)
   --max-outage <T>         flag power failures longer than T (long-outage)
   --isolated               flag single-meter power failures (isolated-outage); needs at least --area-min meters
-  --limit <n>              rows listed per section in the text report (default 50)
+  --limit <n>              rows listed per section in the text and --md reports (default 50)
   --meter-column <name>    meter id column (default meter)
   --time-column <name>     timestamp column (default timestamp)
   --event-column <name>    event name / code column (default event)
   --phase-column <name>    phase column (default phase, optional)
   --json                   JSON report (summary, conditions, area outages, meters, every finding)
+  --md                     Markdown report (summary, conditions, area outages, per-meter table, findings; lists
+                           capped by --limit)
+  --csv                    CSV, one row per finding (every finding, --limit ignored), columns kind, meter,
+                           condition, phase, start, end, duration, duration_ms, rows, detail
+                           (pick one of --json, --md, --csv)
   --list-events            print the built-in event names and aliases
   -h, --help               show this help
 
@@ -113,6 +119,8 @@ export function main(argv: string[]): number {
         'event-column': { type: 'string' },
         'phase-column': { type: 'string' },
         json: { type: 'boolean' },
+        md: { type: 'boolean' },
+        csv: { type: 'boolean' },
         'list-events': { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },
@@ -125,6 +133,7 @@ export function main(argv: string[]): number {
       process.stdout.write(listEvents());
       return 0;
     }
+    if ([values.json, values.md, values.csv].filter(Boolean).length > 1) throw new InputError('pick one of --json, --md, --csv.');
     const [eventsFile, ...rest] = positionals;
     if (eventsFile === undefined) throw new InputError('missing the events CSV file; see --help.');
     if (rest.length) throw new InputError(`unexpected arguments: ${rest.join(' ')}`);
@@ -148,7 +157,9 @@ export function main(argv: string[]): number {
       map,
     );
     const report = check(log, options);
-    process.stdout.write(values.json ? jsonReport(report) : textReport(report, limit));
+    process.stdout.write(
+      values.json ? jsonReport(report) : values.md ? mdReport(report, limit) : values.csv ? csvReport(report) : textReport(report, limit),
+    );
     return report.findings.length ? 1 : 0;
   } catch (e) {
     if (e instanceof InputError || (e as { code?: string }).code?.startsWith('ERR_PARSE_ARGS')) {
