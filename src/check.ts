@@ -10,7 +10,8 @@ export type FindingKind =
   | 'repeated-start'
   | 'open-at-end'
   | 'long-outage'
-  | 'isolated-outage';
+  | 'isolated-outage'
+  | 'frequency-exceeded';
 
 /** Report order of finding kinds. */
 export const FINDING_KINDS: readonly FindingKind[] = [
@@ -22,6 +23,7 @@ export const FINDING_KINDS: readonly FindingKind[] = [
   'open-at-end',
   'long-outage',
   'isolated-outage',
+  'frequency-exceeded',
 ];
 
 export interface Finding {
@@ -36,6 +38,10 @@ export interface Finding {
   durationMs?: number | null;
   /** File rows involved. */
   rows: number[];
+  /** frequency-exceeded only: calendar day as written (YYYY-MM-DD), episode starts that day and the limit. */
+  day?: string;
+  count?: number;
+  limit?: number;
   message: string;
 }
 
@@ -62,6 +68,11 @@ export interface CheckOptions {
   maxOutageMs?: number;
   /** Flag single-meter outages (opt-in). */
   isolated?: boolean;
+  /**
+   * Per condition, the most episode starts allowed per meter and calendar day (the date as written in the start
+   * timestamp); more is a frequency-exceeded finding (opt-in).
+   */
+  maxPerDay?: Partial<Record<Condition, number>>;
 }
 
 export interface ConditionStat {
@@ -113,7 +124,15 @@ export interface Report {
     outagesSingleMeter: number;
     unknownEvents: number;
   };
-  settings: { nearMs: number; outageWindowMs: number; areaMin: number; maxOutageMs: number | null; isolated: boolean };
+  settings: {
+    nearMs: number;
+    outageWindowMs: number;
+    areaMin: number;
+    maxOutageMs: number | null;
+    isolated: boolean;
+    /** Only present when frequency limits were given. */
+    maxPerDay?: Partial<Record<Condition, number>>;
+  };
   conditions: ConditionStat[];
   areaOutages: AreaOutage[];
   /** Meters with tamper episodes or findings, most tamper first. */
@@ -167,12 +186,67 @@ function eventFinding(f: Finding, e: MeterEvent): Finding {
   return f;
 }
 
+/** Validated frequency limits in CONDITIONS order. */
+function frequencyLimits(maxPerDay: Partial<Record<Condition, number>> | undefined): [Condition, number][] {
+  if (!maxPerDay) return [];
+  for (const [c, n] of Object.entries(maxPerDay)) {
+    if (n === undefined) continue;
+    if (!CONDITIONS.includes(c as Condition)) throw new InputError(`max per day: "${c}" is not a condition (${CONDITIONS.join(', ')}).`);
+    if (!Number.isSafeInteger(n) || n < 0) throw new InputError(`max per day: ${c} limit must be a whole number of at least 0.`);
+  }
+  return CONDITIONS.filter((c) => maxPerDay[c] !== undefined).map((c) => [c, maxPerDay[c]!]);
+}
+
+/** Calendar day of a timestamp as written (its own date, so its own zone / offset). */
+const dayOf = (e: MeterEvent) => e.stamp.slice(0, 10);
+
+/**
+ * frequency-exceeded: per meter, condition and calendar day, episode starts (a start while already active is part of
+ * its episode and not counted) strictly over the limit.
+ */
+function frequencyFindings(episodes: Episode[], limits: [Condition, number][]): Finding[] {
+  const limitOf = new Map(limits);
+  const groups = new Map<string, Episode[]>();
+  for (const ep of episodes) {
+    if (!limitOf.has(ep.condition)) continue;
+    const key = `${ep.meter}\u0000${ep.condition}\u0000${dayOf(ep.start)}`;
+    const g = groups.get(key);
+    if (g) g.push(ep);
+    else groups.set(key, [ep]);
+  }
+  const out: { f: Finding; ms: number; c: number }[] = [];
+  for (const g of groups.values()) {
+    const limit = limitOf.get(g[0].condition)!;
+    if (g.length <= limit) continue;
+    g.sort((a, b) => a.start.ms - b.start.ms || a.start.row - b.start.row);
+    const { meter, condition } = g[0];
+    const day = dayOf(g[0].start);
+    const rows = g.map((ep) => ep.start.row);
+    const shown = rows.slice(0, 10).join(', ') + (rows.length > 10 ? ', ...' : '');
+    const f: Finding = {
+      kind: 'frequency-exceeded',
+      meter,
+      condition,
+      start: g[0].start.stamp,
+      rows,
+      day,
+      count: g.length,
+      limit,
+      message: `${meter} ${LABEL[condition]} started ${g.length} time${g.length === 1 ? '' : 's'} on ${day}, over the limit of ${limit} per day (rows ${shown})`,
+    };
+    findingTime.set(f, g[0].start.ms);
+    out.push({ f, ms: g[0].start.ms, c: CONDITIONS.indexOf(condition) });
+  }
+  return out.sort((a, b) => a.ms - b.ms || a.c - b.c).map((o) => o.f);
+}
+
 /** Audits an event log: pairs start / end events into episodes, clusters power failures, and lists findings. */
 export function check(log: EventLog, options: CheckOptions = {}): Report {
   const nearMs = options.nearMs ?? 5 * 60_000;
   const outageWindowMs = options.outageWindowMs ?? 2 * 60_000;
   const areaMin = options.areaMin ?? 3;
   if (areaMin < 2) throw new InputError('--area-min must be at least 2.');
+  const limits = frequencyLimits(options.maxPerDay);
 
   // Group by meter (first appearance order) and replay each meter's log by time (stable: equal times keep file order).
   const byMeter = new Map<string, MeterEvent[]>();
@@ -317,6 +391,8 @@ export function check(log: EventLog, options: CheckOptions = {}): Report {
     }
   }
 
+  if (limits.length) findings.push(...frequencyFindings(episodes, limits));
+
   // Order: kind, then meter (first appearance), then time (stable: equal times keep the order found).
   const meterOrder = new Map([...byMeter.keys()].map((m, i) => [m, i]));
   const kindOrder = new Map(FINDING_KINDS.map((k, i) => [k, i]));
@@ -362,7 +438,14 @@ export function check(log: EventLog, options: CheckOptions = {}): Report {
       outagesSingleMeter: power.length - area.size,
       unknownEvents: [...unknown.values()].reduce((a, u) => a + u.count, 0),
     },
-    settings: { nearMs, outageWindowMs, areaMin, maxOutageMs: options.maxOutageMs ?? null, isolated: options.isolated === true },
+    settings: {
+      nearMs,
+      outageWindowMs,
+      areaMin,
+      maxOutageMs: options.maxOutageMs ?? null,
+      isolated: options.isolated === true,
+      ...(limits.length && { maxPerDay: Object.fromEntries(limits) }),
+    },
     conditions,
     areaOutages,
     meters,

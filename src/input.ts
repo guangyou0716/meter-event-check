@@ -1,6 +1,6 @@
 import { parseCsv } from './csv.js';
 import { InputError } from './errors.js';
-import { type EventMeaning, lookupEvent, normaliseEvent } from './vocabulary.js';
+import { CONDITIONS, type Condition, type EventMeaning, lookupEvent, normaliseEvent } from './vocabulary.js';
 
 /** One row of the event log. */
 export interface MeterEvent {
@@ -199,4 +199,27 @@ export function formatDuration(ms: number): string {
   if (h) return `${h}h${two(m)}m${tail}`;
   if (m) return `${m}m${tail}`;
   return `${sec}s`;
+}
+
+/**
+ * Parses --max-per-day values: each value one or more comma-separated `condition=N` (condition names as in the
+ * report, e.g. magnetic, cover, terminal-cover, power; matched like event names; N a whole number from 0). A
+ * condition given twice is an error.
+ */
+export function parseMaxPerDay(values: readonly string[]): Partial<Record<Condition, number>> {
+  const out: Partial<Record<Condition, number>> = {};
+  for (const value of values) {
+    for (const item of value.split(',')) {
+      const m = /^\s*([^=]*?)\s*=\s*(\S*)\s*$/.exec(item);
+      if (!m || !m[1]) throw new InputError(`--max-per-day "${item.trim()}" is not condition=N, e.g. magnetic=3.`);
+      const c = normaliseEvent(m[1]) as Condition;
+      if (!CONDITIONS.includes(c)) throw new InputError(`--max-per-day: "${m[1]}" is not a condition (${CONDITIONS.join(', ')}).`);
+      if (!/^\d+$/.test(m[2]) || Number(m[2]) > 1_000_000) {
+        throw new InputError(`--max-per-day: ${c} limit "${m[2]}" must be a whole number from 0 to 1000000.`);
+      }
+      if (out[c] !== undefined) throw new InputError(`--max-per-day: ${c} is given more than once.`);
+      out[c] = Number(m[2]);
+    }
+  }
+  return out;
 }

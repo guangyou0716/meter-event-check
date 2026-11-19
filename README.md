@@ -85,12 +85,43 @@ code,event
 | `open-at-end`        | power failure or phase loss still active at the end of the meter's log                       |
 | `long-outage`        | power failure longer than `--max-outage` (opt-in)                                             |
 | `isolated-outage`    | power failure that is not part of an area outage (opt-in, `--isolated`)                       |
+| `frequency-exceeded` | a meter started a condition more than N times on one calendar day (opt-in, `--max-per-day`)   |
 
 **Area outage**: power failures are taken in time order; a group holds the failures within `--outage-window`
 (default 2m) of its first failure (anchored, so a busy fleet does not chain into one endless group); a group with
 at least `--area-min` (default 3) different meters is an area outage, every other failure is a single-meter outage.
 
 Exit codes: `0` no findings, `1` findings, `2` input error.
+
+## Frequency limits
+
+`--max-per-day condition=N` flags a meter whose episodes of that condition **start** more than N times on one
+calendar day (exactly N is fine). Give it more than once or as a comma list:
+
+```sh
+meter-event-check examples/frequency.csv --max-per-day magnetic=3 --max-per-day cover=1,phase-loss=1
+```
+
+- Conditions: `power`, `phase-loss`, `cover`, `terminal-cover`, `magnetic`, `reverse`, `neutral`, `bypass`
+  (matched like event names, so `Phase Loss` works); N is a whole number from 0 (`0` = flag any start).
+- The day is the date **as written** in the start timestamp (its own zone / offset; for `Z` stamps the UTC day).
+  An episode running over midnight counts on the day it started.
+- Episode starts are counted, not start events: a start repeated while the condition is already active belongs to
+  its episode (and is a `repeated-start` finding). Ongoing episodes count; all phases of a condition count together.
+- One finding per meter, condition and day with `day`, `count`, `limit`, `start` (first start that day) and the
+  start `rows`. In `--csv` the columns `day,count,limit` are appended (only when `--max-per-day` is given); the
+  `--md` settings line lists the limits; `--json` has `settings.maxPerDay`.
+- Unknown condition, a bad or missing N, or a condition given twice is an input error (exit 2).
+
+```text
+frequency-exceeded (3):
+  - MTR-0101 magnetic interference started 4 times on 2026-11-10, over the limit of 3 per day (rows 2, 4, 6, 9)
+  - MTR-0103 phase loss started 2 times on 2026-11-10, over the limit of 1 per day (rows 23, 25)
+  - MTR-0103 cover open started 2 times on 2026-11-10, over the limit of 1 per day (rows 19, 21)
+```
+
+(MTR-0102 started magnetic interference exactly 3 times on 2026-11-10 and is not flagged; MTR-0101's start at
+13:12 came while the 13:10 episode was active and is not counted.)
 
 ## Example
 
@@ -172,7 +203,8 @@ every format.
 - `--csv`: one row per finding, every finding (`--limit` is ignored), in the text report's kind order; header only
   when there are none. Columns `kind,meter,condition,phase,start,end,duration,duration_ms,rows,detail`: `start`,
   `end` and `duration` are the finding's episode as written (for `tamper-near-outage` the cover episode; the outage
-  is in `detail`), empty when still active or not an episode; `rows` are file rows, space separated. Cells follow
+  is in `detail`), empty when still active or not an episode; `rows` are file rows, space separated. With
+  `--max-per-day`, `day,count,limit` are appended (filled for `frequency-exceeded` only). Cells follow
   RFC 4180 quoting, and cells starting with `=`, `+`, `-`, `@`, tab or CR get a leading `'` so spreadsheets do not
   run them as formulas.
 
@@ -194,6 +226,7 @@ tamper,MTR-0004,terminal-cover,,2026-11-05 21:57:00,2026-11-05 22:40:00,43m,2580
 --area-min <n>           meters a group needs to be an area outage (default 3, at least 2)
 --max-outage <T>         flag power failures longer than T (long-outage)
 --isolated               flag single-meter power failures; needs at least --area-min meters in the log
+--max-per-day <c=N,...>  flag more than N episode starts of condition c per meter and calendar day (repeatable)
 --limit <n>              rows listed per section in the text and --md reports (default 50)
 --meter-column / --time-column / --event-column / --phase-column <name>
 --json                   JSON report
@@ -212,7 +245,7 @@ import { readFileSync } from 'node:fs';
 import { check, parseEvents, parseMap, textReport } from './dist/index.js';
 
 const log = parseEvents(readFileSync('events.csv', 'utf8'), {}, parseMap(readFileSync('map.csv', 'utf8')));
-const report = check(log, { maxOutageMs: 2 * 3_600_000, isolated: true });
+const report = check(log, { maxOutageMs: 2 * 3_600_000, isolated: true, maxPerDay: { magnetic: 3 } });
 console.log(report.counts, textReport(report));
 ```
 
@@ -230,7 +263,8 @@ console.log(report.counts, textReport(report));
 npm run lint && npm run typecheck && npm test && npm run build && npm run smoke
 ```
 
-The smoke run builds a synthetic 100,000-row log (2,000 meters x 50 events) and checks the counts.
+The smoke run builds a synthetic 100,000-row log (2,000 meters x 50 events) and checks the counts (including
+`--max-per-day`).
 
 ## Licence
 

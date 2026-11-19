@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import { check, conditionLabel } from './check.js';
 import { InputError } from './errors.js';
 import { csvReport, mdReport } from './formats.js';
-import { parseDuration, parseEvents, parseMap } from './input.js';
+import { parseDuration, parseEvents, parseMap, parseMaxPerDay } from './input.js';
 import { jsonReport, textReport } from './report.js';
 import { VOCABULARY } from './vocabulary.js';
 
@@ -36,6 +36,7 @@ Findings:
   open-at-end         power failure or phase loss still active at the end of the meter's log
   long-outage         power failure longer than --max-outage (opt-in)
   isolated-outage     power failure not part of an area outage (opt-in, --isolated)
+  frequency-exceeded  a meter started a condition more than N times on one calendar day (opt-in, --max-per-day)
 A start and its end must have the same phase (empty phase = whole meter).
 
 Area outage: power failures are grouped in time order; a group holds the failures within --outage-window of its
@@ -50,6 +51,10 @@ Options:
   --area-min <n>           meters a group needs to be an area outage (default 3, at least 2)
   --max-outage <T>         flag power failures longer than T (long-outage)
   --isolated               flag single-meter power failures (isolated-outage); needs at least --area-min meters
+  --max-per-day <c=N,...>  flag a meter whose episodes of condition c start more than N times on one calendar day
+                           (frequency-exceeded); day = the date as written in the timestamp; repeatable or comma
+                           list, e.g. magnetic=3,cover=1; conditions: power, phase-loss, cover, terminal-cover,
+                           magnetic, reverse, neutral, bypass
   --limit <n>              rows listed per section in the text and --md reports (default 50)
   --meter-column <name>    meter id column (default meter)
   --time-column <name>     timestamp column (default timestamp)
@@ -113,6 +118,7 @@ export function main(argv: string[]): number {
         'area-min': { type: 'string' },
         'max-outage': { type: 'string' },
         isolated: { type: 'boolean' },
+        'max-per-day': { type: 'string', multiple: true },
         limit: { type: 'string' },
         'meter-column': { type: 'string' },
         'time-column': { type: 'string' },
@@ -143,6 +149,7 @@ export function main(argv: string[]): number {
       areaMin: int(values['area-min'], '--area-min', 3, 2, 1_000_000),
       maxOutageMs: duration(values['max-outage'], '--max-outage'),
       isolated: values.isolated === true,
+      ...(values['max-per-day'] && { maxPerDay: parseMaxPerDay(values['max-per-day']) }),
     };
     const limit = int(values.limit, '--limit', 50, 1, 1_000_000);
     const map = values.map === undefined ? undefined : parseMap(read(values.map, 'map'));
