@@ -18,15 +18,20 @@ export const mdCell = (v: string | number) => String(v).replace(/\\/g, '\\\\').r
 
 export const CSV_HEADER = ['kind', 'meter', 'condition', 'phase', 'start', 'end', 'duration', 'duration_ms', 'rows', 'detail'];
 
+/** Columns appended to the CSV only when frequency limits (--max-per-day) were given. */
+export const CSV_FREQUENCY_COLUMNS = ['day', 'count', 'limit'];
+
 const byKind = (findings: Finding[]) => [...findings].sort((a, b) => FINDING_KINDS.indexOf(a.kind) - FINDING_KINDS.indexOf(b.kind));
 
 /**
  * Findings as CSV, one row per finding (all of them, --limit is ignored), in the text report's kind order. File rows
  * inside a cell are space separated; end and duration are empty when the episode is still active (or not an
- * episode). No findings = header only.
+ * episode). No findings = header only. With frequency limits the columns day, count and limit are appended (filled
+ * for frequency-exceeded only).
  */
 export function csvReport(r: Report): string {
-  const lines = [csvLine(CSV_HEADER)];
+  const freq = r.settings.maxPerDay !== undefined;
+  const lines = [csvLine(freq ? [...CSV_HEADER, ...CSV_FREQUENCY_COLUMNS] : CSV_HEADER)];
   for (const f of byKind(r.findings)) {
     const ms = typeof f.durationMs === 'number' ? f.durationMs : undefined;
     lines.push(
@@ -41,6 +46,7 @@ export function csvReport(r: Report): string {
         ms,
         f.rows.join(' '),
         f.message,
+        ...(freq ? [f.day, f.count, f.limit] : []),
       ]),
     );
   }
@@ -65,7 +71,8 @@ export function mdReport(r: Report, limit = 50): string {
     `| ${s.meters} | ${s.events} | ${s.duplicatesDropped} | ${mdCell(s.from)} | ${mdCell(s.to)} | ${s.outages} | ${s.outagesInArea} | ${s.outagesSingleMeter} | ${s.logCleared} | ${s.clockAdjusted} | ${s.unknownEvents} |`,
     '',
     `Settings: near ${formatDuration(st.nearMs)}, outage window ${formatDuration(st.outageWindowMs)}, area outage >= ${st.areaMin} meters` +
-      `${st.maxOutageMs === null ? '' : `, max outage ${formatDuration(st.maxOutageMs)}`}${st.isolated ? ', isolated outages flagged' : ''}.`,
+      `${st.maxOutageMs === null ? '' : `, max outage ${formatDuration(st.maxOutageMs)}`}${st.isolated ? ', isolated outages flagged' : ''}` +
+      `${st.maxPerDay ? `, max starts per day: ${Object.entries(st.maxPerDay).map(([c, n]) => `${c} ${n}`).join(', ')}` : ''}.`,
     '',
     '## Conditions',
     '',

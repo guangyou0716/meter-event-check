@@ -1,0 +1,26 @@
+meter,timestamp,event,phase
+MTR-0101,2026-11-10 01:00:00+08:00,magnetic-start,
+MTR-0101,2026-11-10 01:05:00+08:00,magnetic-end,
+MTR-0101,2026-11-10 07:30:00+08:00,magnetic-start,
+MTR-0101,2026-11-10 07:32:00+08:00,magnetic-end,
+MTR-0101,2026-11-10 13:10:00+08:00,magnetic-start,
+MTR-0101,2026-11-10 13:12:00+08:00,magnetic-start,
+MTR-0101,2026-11-10 13:20:00+08:00,magnetic-end,
+MTR-0101,2026-11-10 23:50:00+08:00,magnetic-start,
+MTR-0101,2026-11-11 00:20:00+08:00,magnetic-end,
+MTR-0102,2026-11-10 02:00:00+08:00,magnetic-start,
+MTR-0102,2026-11-10 02:01:00+08:00,magnetic-end,
+MTR-0102,2026-11-10 09:00:00+08:00,magnetic-start,
+MTR-0102,2026-11-10 09:01:00+08:00,magnetic-end,
+MTR-0102,2026-11-10 18:00:00+08:00,magnetic-start,
+MTR-0102,2026-11-10 18:01:00+08:00,magnetic-end,
+MTR-0102,2026-11-11 00:10:00+08:00,magnetic-start,
+MTR-0102,2026-11-11 00:11:00+08:00,magnetic-end,
+MTR-0103,2026-11-10 10:00:00+08:00,cover-open,
+MTR-0103,2026-11-10 10:10:00+08:00,cover-close,
+MTR-0103,2026-11-10 15:00:00+08:00,cover-open,
+MTR-0103,2026-11-10 15:05:00+08:00,cover-close,
+MTR-0103,2026-11-10 08:00:00+08:00,phase-loss,L1
+MTR-0103,2026-11-10 08:30:00+08:00,phase-restore,L1
+MTR-0103,2026-11-10 08:10:00+08:00,phase-loss,L2
+MTR-0103,2026-11-10 08:40:00+08:00,phase-restore,L2

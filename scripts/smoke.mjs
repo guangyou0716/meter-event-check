@@ -23,10 +23,13 @@ const stamp = (ms) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
 const meter = (i) => `M-${String(i).padStart(5, '0')}`;
 
 const lines = ['meter,timestamp,event'];
+// Distinct meter / calendar day pairs with a power failure start (expected frequency-exceeded at power=0).
+const powerDays = new Set();
 for (let i = 0; i < METERS; i++) {
   const m = meter(i);
   // Area outage: every meter fails within the first minute of 10:00 and is restored at 11:00.
   lines.push(`${m},${stamp(day1 + (i % 60) * 1000)},power-fail`, `${m},${stamp(day1 + 60 * MIN)},power-restore`);
+  powerDays.add(`${m} ${stamp(day1).slice(0, 10)}`);
   // 1 in 100 meters: cover opened during the area outage (tamper + tamper-near-outage); the rest: two clock syncs.
   if (i % 100 === 0) lines.push(`${m},${stamp(day1 + 30 * MIN)},cover-open`, `${m},${stamp(day1 + 40 * MIN)},cover-close`);
   else lines.push(`${m},${stamp(day1 + 2 * 60 * MIN)},clock-adjusted`, `${m},${stamp(day1 + 3 * 60 * MIN)},clock-adjusted`);
@@ -34,6 +37,7 @@ for (let i = 0; i < METERS; i++) {
   for (let k = 0; k < PAIRS; k++) {
     const s = t0 + (k * METERS + i) * 3 * MIN;
     lines.push(`${m},${stamp(s)},power-fail`, `${m},${stamp(s + MIN)},power-restore`);
+    powerDays.add(`${m} ${stamp(s).slice(0, 10)}`);
   }
 }
 if (lines.length - 1 !== 100_000) fail(`generated ${lines.length - 1} rows`);
@@ -88,3 +92,16 @@ if (r5.status !== 1 || !r5.stdout.startsWith('# Meter event check\n') || !r5.std
   fail(`md: ${r5.status} ${r5.stderr}`);
 }
 console.log(`smoke: ok --md in ${Date.now() - t5} ms`);
+
+const t6 = Date.now();
+const r6 = run([file, '--json', '--max-per-day', 'power=0', '--max-per-day', 'cover=0']);
+const ms6 = Date.now() - t6;
+const d6 = r6.stdout ? JSON.parse(r6.stdout) : {};
+const want6 = powerDays.size + 20;
+if (r6.status !== 1 || d6.counts?.['frequency-exceeded'] !== want6 || d6.settings?.maxPerDay?.power !== 0) {
+  fail(`max-per-day: status ${r6.status} ${JSON.stringify(d6.counts)} (want ${want6}) ${r6.stderr}`);
+}
+const r7 = run([file, '--json', '--max-per-day', 'power=1,cover=1']);
+const d7 = r7.stdout ? JSON.parse(r7.stdout) : {};
+if (r7.status !== 1 || d7.counts?.['frequency-exceeded'] !== undefined) fail(`max-per-day 1: ${JSON.stringify(d7.counts)} ${r7.stderr}`);
+console.log(`smoke: ok --max-per-day in ${ms6} ms: ${want6} frequency-exceeded at power=0,cover=0, none at 1`);
