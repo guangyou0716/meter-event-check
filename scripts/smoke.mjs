@@ -105,3 +105,25 @@ const r7 = run([file, '--json', '--max-per-day', 'power=1,cover=1']);
 const d7 = r7.stdout ? JSON.parse(r7.stdout) : {};
 if (r7.status !== 1 || d7.counts?.['frequency-exceeded'] !== undefined) fail(`max-per-day 1: ${JSON.stringify(d7.counts)} ${r7.stderr}`);
 console.log(`smoke: ok --max-per-day in ${ms6} ms: ${want6} frequency-exceeded at power=0,cover=0, none at 1`);
+
+const t8 = Date.now();
+const r8 = run([file, '--csv-meters', '--isolated', '--max-outage', '30m']);
+const ms8 = Date.now() - t8;
+const mLines = r8.stdout.trimEnd().split('\n');
+// Every meter has isolated outages, so every meter is listed; 20 have one cover episode each.
+const sumCol = (name) => {
+  const k = mLines[0].split(',').indexOf(name);
+  return mLines.slice(1).reduce((a, l) => a + Number(l.split(',')[k]), 0);
+};
+if (
+  r8.status !== 1 ||
+  mLines.length !== 1 + METERS ||
+  !mLines[0].startsWith('meter,events,tamper_episodes,') ||
+  sumCol('cover') !== 20 ||
+  sumCol('isolated-outage') !== METERS * PAIRS ||
+  sumCol('long-outage') !== METERS ||
+  sumCol('findings') !== 40 + METERS * PAIRS + METERS
+) {
+  fail(`csv-meters: status ${r8.status} ${mLines.length} lines ${r8.stderr}`);
+}
+console.log(`smoke: ok --csv-meters in ${ms8} ms: ${mLines.length - 1} meter rows`);
