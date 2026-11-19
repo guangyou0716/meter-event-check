@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { check, conditionLabel } from './check.js';
 import { InputError } from './errors.js';
-import { csvReport, mdReport } from './formats.js';
+import { csvMetersReport, csvReport, mdReport } from './formats.js';
 import { parseDuration, parseEvents, parseMap, parseMaxPerDay } from './input.js';
 import { jsonReport, textReport } from './report.js';
 import { VOCABULARY } from './vocabulary.js';
@@ -65,7 +65,11 @@ Options:
                            capped by --limit)
   --csv                    CSV, one row per finding (every finding, --limit ignored), columns kind, meter,
                            condition, phase, start, end, duration, duration_ms, rows, detail
-                           (pick one of --json, --md, --csv)
+  --csv-meters             CSV, one row per meter with tamper or findings (all of them, most tamper first):
+                           meter, events, tamper_episodes, tamper_time, tamper_ms, outages, findings, episodes per
+                           tamper condition (cover ... bypass), then findings per kind (tamper-near-outage ...
+                           frequency-exceeded)
+                           (pick one of --json, --md, --csv, --csv-meters)
   --list-events            print the built-in event names and aliases
   -h, --help               show this help
 
@@ -127,6 +131,7 @@ export function main(argv: string[]): number {
         json: { type: 'boolean' },
         md: { type: 'boolean' },
         csv: { type: 'boolean' },
+        'csv-meters': { type: 'boolean' },
         'list-events': { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },
@@ -139,7 +144,9 @@ export function main(argv: string[]): number {
       process.stdout.write(listEvents());
       return 0;
     }
-    if ([values.json, values.md, values.csv].filter(Boolean).length > 1) throw new InputError('pick one of --json, --md, --csv.');
+    if ([values.json, values.md, values.csv, values['csv-meters']].filter(Boolean).length > 1) {
+      throw new InputError('pick one of --json, --md, --csv, --csv-meters.');
+    }
     const [eventsFile, ...rest] = positionals;
     if (eventsFile === undefined) throw new InputError('missing the events CSV file; see --help.');
     if (rest.length) throw new InputError(`unexpected arguments: ${rest.join(' ')}`);
@@ -165,7 +172,15 @@ export function main(argv: string[]): number {
     );
     const report = check(log, options);
     process.stdout.write(
-      values.json ? jsonReport(report) : values.md ? mdReport(report, limit) : values.csv ? csvReport(report) : textReport(report, limit),
+      values.json
+        ? jsonReport(report)
+        : values.md
+          ? mdReport(report, limit)
+          : values.csv
+            ? csvReport(report)
+            : values['csv-meters']
+              ? csvMetersReport(report)
+              : textReport(report, limit),
     );
     return report.findings.length ? 1 : 0;
   } catch (e) {

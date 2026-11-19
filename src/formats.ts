@@ -1,5 +1,6 @@
 import { FINDING_KINDS, type Finding, type Report, conditionLabel } from './check.js';
 import { formatDuration } from './input.js';
+import { TAMPER_CONDITIONS } from './vocabulary.js';
 
 /**
  * One CSV cell (RFC 4180): quoted when it holds a quote, comma or line break. Cells starting with = + - @ tab or CR
@@ -47,6 +48,53 @@ export function csvReport(r: Report): string {
         f.rows.join(' '),
         f.message,
         ...(freq ? [f.day, f.count, f.limit] : []),
+      ]),
+    );
+  }
+  return lines.join('\n') + '\n';
+}
+
+/** Per-meter CSV (--csv-meters): fixed leading columns; then tamper episodes per tamper condition and findings per kind. */
+export const CSV_METER_HEADER = ['meter', 'events', 'tamper_episodes', 'tamper_time', 'tamper_ms', 'outages', 'findings'];
+
+/** Finding kinds counted in their own --csv-meters column ('tamper' is left out: it always equals tamper_episodes). */
+const METER_KIND_COLUMNS = FINDING_KINDS.filter((k) => k !== 'tamper');
+
+/** Full --csv-meters header: CSV_METER_HEADER, the tamper conditions, then the finding kinds except tamper. */
+export const csvMeterHeader = (): string[] => [...CSV_METER_HEADER, ...TAMPER_CONDITIONS, ...METER_KIND_COLUMNS];
+
+/**
+ * Per-meter CSV, one row per meter with tamper episodes or findings (the report's `meters`: most tamper first, all
+ * of them, --limit is ignored). tamper_time is empty when the meter has no tamper episode; tamper_ms is closed
+ * tamper time. Then one column per tamper condition (episodes of it, closed or still active) and one per finding
+ * kind except tamper (count). No such meters = header only.
+ */
+export function csvMetersReport(r: Report): string {
+  const perMeter = new Map<string, Map<string, number>>();
+  const bump = (meter: string, col: string) => {
+    let m = perMeter.get(meter);
+    if (!m) perMeter.set(meter, (m = new Map()));
+    m.set(col, (m.get(col) ?? 0) + 1);
+  };
+  for (const f of r.findings) {
+    // Every tamper episode gives exactly one tamper finding, which carries its condition.
+    if (f.kind === 'tamper') bump(f.meter, `c:${f.condition}`);
+    else bump(f.meter, `k:${f.kind}`);
+  }
+  const lines = [csvLine(csvMeterHeader())];
+  for (const m of r.meters) {
+    const c = perMeter.get(m.meter);
+    lines.push(
+      csvLine([
+        m.meter,
+        m.events,
+        m.tamperEpisodes,
+        m.tamperEpisodes ? formatDuration(m.tamperMs) : undefined,
+        m.tamperMs,
+        m.outages,
+        m.findings,
+        ...TAMPER_CONDITIONS.map((cond) => c?.get(`c:${cond}`) ?? 0),
+        ...METER_KIND_COLUMNS.map((k) => c?.get(`k:${k}`) ?? 0),
       ]),
     );
   }

@@ -149,7 +149,7 @@ describe('cli', () => {
     const r = run([ex('events.csv'), a, b]);
     expect(r.code).toBe(2);
     expect(r.out).toBe('');
-    expect(r.err).toBe('meter-event-check: pick one of --json, --md, --csv.\n');
+    expect(r.err).toBe('meter-event-check: pick one of --json, --md, --csv, --csv-meters.\n');
   });
   it('--help and --list-events', () => {
     const h = run(['--help']);

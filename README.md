@@ -194,7 +194,7 @@ file rows).
 
 ## Output formats
 
-Pick one of `--json`, `--md` and `--csv` (more than one is an input error, exit 2); exit codes are the same for
+Pick one of `--json`, `--md`, `--csv` and `--csv-meters` (more than one is an input error, exit 2); exit codes are the same for
 every format.
 
 - `--md`: Markdown report for tickets and wikis: summary table, settings, conditions, area outages, unknown events,
@@ -207,6 +207,23 @@ every format.
   `--max-per-day`, `day,count,limit` are appended (filled for `frequency-exceeded` only). Cells follow
   RFC 4180 quoting, and cells starting with `=`, `+`, `-`, `@`, tab or CR get a leading `'` so spreadsheets do not
   run them as formulas.
+- `--csv-meters`: one row per meter with tamper episodes or findings (the same meters as the `--md` per-meter
+  table, most tamper first, all of them: `--limit` is ignored), for a revenue-protection worklist or a spreadsheet
+  pivot; header only when there are none. Columns `meter,events,tamper_episodes,tamper_time,tamper_ms,outages,findings`
+  (`tamper_time` empty without tamper; `tamper_ms` is closed tamper time), then tamper episodes per condition
+  (`cover,terminal-cover,magnetic,reverse,neutral,bypass`, closed or still active), then findings per kind
+  (`tamper-near-outage` ... `frequency-exceeded`; `tamper` is left out because it always equals `tamper_episodes`).
+  `findings` = `tamper_episodes` + the per-kind columns. Same quoting and formula guard as `--csv`.
+
+```text
+$ meter-event-check examples/events.csv --csv-meters
+meter,events,tamper_episodes,tamper_time,tamper_ms,outages,findings,cover,terminal-cover,magnetic,reverse,neutral,bypass,tamper-near-outage,log-cleared,unmatched-end,repeated-start,open-at-end,long-outage,isolated-outage,frequency-exceeded
+MTR-0002,4,1,15m,900000,1,2,1,0,0,0,0,0,1,0,0,0,0,0,0,0
+MTR-0003,5,1,1h30m,5400000,1,2,0,0,1,0,0,0,0,0,0,1,0,0,0,0
+MTR-0004,6,1,43m,2580000,2,2,0,1,0,0,0,0,1,0,0,0,0,0,0,0
+MTR-0006,6,1,0s,0,1,2,0,0,0,1,0,0,0,0,0,0,1,0,0,0
+MTR-0005,4,0,,0,1,2,0,0,0,0,0,0,0,1,1,0,0,0,0,0
+```
 
 ```text
 $ meter-event-check examples/events.csv --csv
@@ -232,6 +249,7 @@ tamper,MTR-0004,terminal-cover,,2026-11-05 21:57:00,2026-11-05 22:40:00,43m,2580
 --json                   JSON report
 --md                     Markdown report (lists capped by --limit)
 --csv                    CSV, one row per finding (all findings)
+--csv-meters             CSV, one row per meter with tamper or findings (all of them)
 --list-events            built-in event names and aliases
 ```
 
